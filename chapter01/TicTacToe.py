@@ -7,6 +7,12 @@
 # Permission given to modify the code as long as you keep this        #
 # declaration at the top                                              #
 #######################################################################
+'''
+特点：属于有模型，有限状态，无确定最优解，是一个平衡游戏
+所谓有模型：(S,A,P,R,γ)，已知；否则，即为无模型问题
+平衡游戏：不能通过minimax找到一个确定优胜解
+强化学习：在每个状态下， 算出下一个可行最高状态，作为行动策略
+'''
 
 from __future__ import print_function
 import numpy as np
@@ -16,6 +22,7 @@ BOARD_ROWS = 3
 BOARD_COLS = 3
 BOARD_SIZE = BOARD_ROWS * BOARD_COLS
 
+# 状态
 class State:
     def __init__(self):
         # the board is represented by a n * n array,
@@ -87,21 +94,27 @@ class State:
         return newState
 
     # print the board
-    def show(self):
+    # @recomendation recomend moves with value
+    def show(self, recomendation=None):
         for i in range(0, BOARD_ROWS):
-            print('-------------')
+            print('------------------------------')
             out = '| '
             for j in range(0, BOARD_COLS):
                 if self.data[i, j] == 1:
-                    token = '*'
+                    token = '{0: ^5}'.format('*')
                 if self.data[i, j] == 0:
-                    token = '0'
+                    token = '{0: ^5}'.format('0')
+                    # 走位推荐值
+                    if recomendation:
+                        if (i,j) in recomendation:
+                            token = '{0: ^7}'.format(str(recomendation[(i,j)])[0:5])                        
                 if self.data[i, j] == -1:
-                    token = 'x'
+                    token = '{0: ^5}'.format('x')
                 out += token + ' | '
             print(out)
-        print('-------------')
+        print('--------------------------------')
 
+# 计算所有状态
 def getAllStatesImpl(currentState, currentSymbol, allStates):
     for i in range(0, BOARD_ROWS):
         for j in range(0, BOARD_COLS):
@@ -114,6 +127,7 @@ def getAllStatesImpl(currentState, currentSymbol, allStates):
                     if not isEnd:
                         getAllStatesImpl(newState, -currentSymbol, allStates)
 
+# 计算所有状态
 def getAllStates():
     currentSymbol = 1
     currentState = State()
@@ -125,6 +139,7 @@ def getAllStates():
 # all possible board configurations
 allStates = getAllStates()
 
+# 裁判
 class Judger:
     # @player1: player who will move first, its chessman will be 1
     # @player2: another player with chessman -1
@@ -175,7 +190,11 @@ class Judger:
                 self.currentPlayer = self.p1
             if show:
                 self.currentState.show()
-            [i, j, symbol] = self.currentPlayer.takeAction()
+            [i, j, symbol], recomendation = self.currentPlayer.takeAction()
+            # 显示各个走位的推荐值
+            if show:
+                self.currentState.show(recomendation)
+
             self.currentState = self.currentState.nextState(i, j, symbol)
             hashValue = self.currentState.getHash()
             self.currentState, isEnd = self.allStates[hashValue]
@@ -232,11 +251,14 @@ class Player:
         state = self.states[-1]
         nextStates = []
         nextPositions = []
+        recomendation = dict()
         for i in range(BOARD_ROWS):
             for j in range(BOARD_COLS):
                 if state.data[i, j] == 0:
                     nextPositions.append([i, j])
-                    nextStates.append(state.nextState(i, j, self.symbol).getHash())
+                    nextHash = state.nextState(i, j, self.symbol).getHash()
+                    nextStates.append(nextHash)
+                    recomendation[(i,j)] = self.estimations[nextHash]
         if np.random.binomial(1, self.exploreRate):
             np.random.shuffle(nextPositions)
             # Not sure if truncating is the best way to deal with exploratory step
@@ -244,7 +266,7 @@ class Player:
             self.states = []
             action = nextPositions[0]
             action.append(self.symbol)
-            return action
+            return action, recomendation
 
         values = []
         for hash, pos in zip(nextStates, nextPositions):
@@ -253,7 +275,7 @@ class Player:
         values.sort(key=lambda x: x[0], reverse=True)
         action = values[0][1]
         action.append(self.symbol)
-        return action
+        return action,recomendation
 
     def savePolicy(self):
         fw = open('optimal_policy_' + str(self.symbol), 'wb')
@@ -291,9 +313,10 @@ class HumanPlayer:
         i = data // int(BOARD_COLS)
         j = data % BOARD_COLS
         if self.currentState.data[i, j] != 0:
-            return self.takeAction()
-        return (i, j, self.symbol)
+            return self.takeAction(), None
+        return (i, j, self.symbol), None
 
+# 训练
 def train(epochs=20000):
     player1 = Player()
     player2 = Player()
@@ -313,6 +336,7 @@ def train(epochs=20000):
     player1.savePolicy()
     player2.savePolicy()
 
+# 比赛
 def compete(turns=500):
     player1 = Player(exploreRate=0)
     player2 = Player(exploreRate=0)
@@ -332,6 +356,7 @@ def compete(turns=500):
     print(player1Win / turns)
     print(player2Win / turns)
 
+# 玩
 def play():
     while True:
         player1 = Player(exploreRate=0)
